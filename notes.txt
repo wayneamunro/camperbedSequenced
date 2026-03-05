@@ -1,0 +1,70 @@
+pins used:
+
+LCD: 31,33,34,37,41
+
+buttons: 23,25,27,29
+
+relays: 22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52
+
+I2C: 20,21
+
+Current: A0
+
+
+latch:  51: release
+        53: isClosed
+
+connection of latch :
+  red and gree, together to pin 51
+  white: pin 53
+  yellow: vcc
+  black: gnd
+
+
+
+
+=================================================================================================
+
+wire recommendations:
+  ⚡ For I²C specifically (important)
+
+  I²C was not really designed for 5 m runs.
+
+  The real issue is capacitance, not just resistance.
+
+  At 5 m you should:
+
+  ✔ Use twisted pairs
+
+  Example:
+
+  SDA + GND twisted
+
+  SCL + GND twisted
+
+  Or use:
+
+  CAT5/CAT6 cable (very good option)
+
+  24 AWG
+
+  Twisted pairs
+
+  Cheap
+
+  Designed for low-noise signalling
+
+
+  🧠 Bigger Problem: I²C Signal Integrity
+
+  Over 5 m you may need:
+
+  Lower pull-up resistors (e.g. 2.2kΩ instead of 4.7kΩ)
+
+  Slower I²C clock speed:
+
+  Wire.setClock(100000);  // or even 50000
+
+
+  If you’re running at default 100kHz it might work.
+  At 400kHz it almost certainly won’t.
