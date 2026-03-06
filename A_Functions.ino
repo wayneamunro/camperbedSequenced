@@ -18,6 +18,17 @@ void output( String lastAction, String runState, int status, float a, float bbas
   Serial.println(c);
 }
 
+void printCurrents(float currents[5]){
+  Serial.print("currents: ");
+  for (int i=0; i<5; i++){
+    Serial.print(currents[i],2);
+    if (i<4){
+      Serial.print(", ");
+    }
+  }
+  Serial.println();
+}
+
 float getCurrent(){
   int readNum=10;
   int sensorValue = 0;
@@ -26,6 +37,25 @@ float getCurrent(){
   }
   float current = (sensorValue/(1.0*readNum)/1024.0 - 0.5)*15.0;
   return current;
+}
+
+// pass in a pin, such as A0 -> A10
+float getCurrentByPin(int pin){
+  int readNum=10;
+  int sensorValue = 0;
+  for (int i=0; i<readNum; i++){
+    sensorValue += analogRead(pin);
+  }
+  float current = (sensorValue/(1.0*readNum)/1024.0 - 0.5)*15.0;
+  return current;
+}
+
+void getAllCurrents(float currents[5]){
+  currents[0] = getCurrentByPin(A0);
+  currents[1] = getCurrentByPin(A1);
+  currents[2] = getCurrentByPin(A2);
+  currents[3] = getCurrentByPin(A3);
+  currents[4] = getCurrentByPin(A4);
 }
 
 float getAngle(int ADXL345, String type){

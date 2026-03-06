@@ -21,6 +21,8 @@ int cancelButtonState=0;
 int buttonPushed = 0;
 
 float currentZero = 0.0;
+float currents[5]; // used to return an array from the getAllCurrents function
+
 
 const int openButton=29;
 const int closeButton=27;
@@ -29,6 +31,15 @@ const int cancelButton=23;
 
 // the pins that will be used to control the relays
 int relayPins[] = {22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52};
+
+
+//----------------------------------------------------
+//setup latch
+#include "Latch.h"
+const int latchReleasePin = relayPins[15];
+const int latchInputPin = 53;
+Latch latch(latchReleasePin,latchInputPin);
+
 
 String lastAction="";
 
@@ -156,22 +167,20 @@ void loop() {
 //  float a = getAngle2(ADXL345A,"yx");
   // add calibration factor
   a = a + 4.0;
-/*
-  if (a>45){
-    a=a-180;
-  }
-*/
   //----------- bbase is the angle of the end
   float bbase = getAngle(ADXL345B,"yx");
   // calibrate
 
   //----------- b is the angle between the bed and the end
   float b = bbase+a;
-  //b = b*-1.0;
 
   //----------- c is the current going through all actuators except for the bed ones
   float c = getCurrent() - currentZero;
 
+
+  // ***** need to add zeroing *****
+  getAllCurrents(currents);  // get the values for all currents
+  printCurrents(currents);
 
   displayLCD(a,b,c,displayState);
 
@@ -315,16 +324,42 @@ void loop() {
       // -------------------------------------------------------------
       // bed opening
       // start opening the bed if not opening
-      if (bedPhase==0 && ac_bed->getStatus()==0 && ac_bed->getState()!="open"){
-        ac_bed->open();
+
+      // release the latch
+      if (bedPhase==0){
+        latch.release();
         bedPhase=1;
       }
 
+      // wait 1 second after latching before starting the bed moving
+      if (bedPhase==1 && latch.runningTime()>500){
+        bedPhase=2;
+      }
+
+
+//      if (bedPhase==0 && ac_bed->getStatus()==0 && ac_bed->getState()!="open"){
+      if (bedPhase==2 && ac_bed->getStatus()==0 && ac_bed->getState()!="open"){
+        ac_bed->open();
+        bedPhase=3;
+      }
+
+      // during bedPhase 3, check after 1 second of running time, if the latch is registering open then unrelease it, if not, then error
+      if (bedPhase==3 && ac_bed->runningTime()>1000 && latch.getStatus()==1){
+        // only checking this is the latch thinks it is in 'release'  status
+        if (latch.isClosed()==0){
+          // all good, turn of the latch release, so it can lock again later
+          latch.releaseEnd();
+        } else {
+          // now we have a problem, not moved after a second, something is wrong
+          openingStatus = 99;  // error condition
+        }
+      }
+
       // stop opening the bed when it is open enough
-      if (bedPhase==1 && (a>0.2 && a<45) ){
+      if (bedPhase==3 && (a>0.2 && a<45) ){
         ac_bed->stop();
         ac_bed->setState("open");
-        bedPhase=2;
+        bedPhase=4;
       }
 
       // check if the bed has taken too long
@@ -457,6 +492,7 @@ void loop() {
       ac_end->stop();
       ac_leg->stop();
       ac_top->stop();
+      latch.releaseEnd();
       runState="stopped";
       displayState="err";
     }
@@ -477,6 +513,21 @@ void loop() {
       legPhase=0;
       topPhase=0;
       bedPhase=0;
+
+      // make sure the latch is delatched
+      latch.release();
+      // add in a delay for the latch to release before we check to see if it is open
+      delay(600);
+      latch.releaseEnd();
+      // check for latch errors
+      if (latch.getStatus()==1){
+        // whoops, the latch thinks it is closed
+        closingStatus=99;
+      }
+      if (latch.isClosed()==1){
+        //oops, the latch microswitch is closed
+        closingStatus=99;
+      }
     }
 
     // check current for general over limit
@@ -496,11 +547,6 @@ void loop() {
       if (ac_end->getState()=="closed"){ closeCount = closeCount + 1; }
       if (ac_leg->getState()=="closed"){ closeCount = closeCount + 1; }
       displayState = "cls" + String(closeCount) + "-";
-/*
-      Serial.println(closeCount);
-      Serial.println(ac_top->getState());
-      Serial.println(displayState);
-*/
 
 
       // -------------------------------------------------------------
@@ -508,11 +554,9 @@ void loop() {
       if (topPhase==0 && ac_top->getStatus()==0 && ac_top->getStatus()!="closed"){
         ac_top->close();
         topPhase=1;
-//        delay(100); // small delay to let any currents settle before zeroing
-//        currentZero = getCurrent(); // ******* need to be careful with this when sequenced
       }
 
-//      if (topPhase==1 && (ac_top->runningTime() > 60000 || (c>0.5) )){
+      //      if (topPhase==1 && (ac_top->runningTime() > 60000 || (c>0.5) )){
       if (topPhase==1 && (ac_top->runningTime() > 60000 )){
         // taken too long or too much current, error
         closingStatus = 99;
@@ -530,7 +574,7 @@ void loop() {
       // end closing
       // close end after a pause
       if (endPhase==0 && ac_top->getState()=="closed" && ac_end->getStatus()==0 && ac_end->getState()!="closed"){
-//      if (endPhase==0 && ac_top->runningTime()>7000 && ac_end->getStatus()==0 && ac_end->getState()!="closed"){
+      //      if (endPhase==0 && ac_top->runningTime()>7000 && ac_end->getStatus()==0 && ac_end->getState()!="closed"){
         ac_end->close();
         endPhase=1;
       }
@@ -541,9 +585,9 @@ void loop() {
       }
 
       if (endPhase==1 && ( (b>4 && b<45) || (c>0.6 && ac_end->runningTime()>1000) ) ){
-//      if (endPhase==1 && ( (b>-5 && b<45) || (c>0.6 && ac_end->runningTime()>1000) ) ){
-//      if (endPhase==1 && ( (b>6 && b<45) || (c>2.0 && ac_end->runningTime()>1000) ) ){
-//      if (endPhase==1 && ( (b>6 && b<45) ) ){
+      //      if (endPhase==1 && ( (b>-5 && b<45) || (c>0.6 && ac_end->runningTime()>1000) ) ){
+      //      if (endPhase==1 && ( (b>6 && b<45) || (c>2.0 && ac_end->runningTime()>1000) ) ){
+      //      if (endPhase==1 && ( (b>6 && b<45) ) ){
         // call it opened
         ac_end->stop();
         ac_end->setState("closed");
@@ -555,9 +599,9 @@ void loop() {
       // -------------------------------------------------------------
       // leg closing
       // close leg after the top and the end are closed
-//      if (legPhase==0 && ac_top->getState()=="closed" && ac_end->getState()=="closed" && ac_leg->getStatus()==0 && ac_leg->getState()!="closed"){
+      //      if (legPhase==0 && ac_top->getState()=="closed" && ac_end->getState()=="closed" && ac_leg->getStatus()==0 && ac_leg->getState()!="closed"){
       if (legPhase==0 && ac_top->getState()=="closed" && ac_end->getState()=="closed" ){
-//      if (legPhase==0 && ac_end->runningTime()>1000){
+      //      if (legPhase==0 && ac_end->runningTime()>1000){
         delay(100);
         currentZero = getCurrent(); // **** adjust this when multiple things are happening
         ac_leg->close();
@@ -575,7 +619,7 @@ void loop() {
         LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
         lcd.begin(16, 2);
       }
-/*
+      /*
       // run for a time at the same time as everything else
       if (legPhase==1 && ac_leg->runningTime() > 25000 ){
         ac_leg->stop();
@@ -586,12 +630,12 @@ void loop() {
         legPhase=3;
         ac_leg->close();
       }
-*/
+      */
       if (legPhase==1 && ( (ac_leg->runningTime() >500 && c<0.1) || (ac_leg->runningTime()>500 && c>0.7)  )){
         ac_leg->stop();
         ac_leg->setState("closed");
-//        delay(100);
-//        currentZero = getCurrent();
+        //        delay(100);
+        //        currentZero = getCurrent();
         legPhase=2;  // make sure to change this when going two stage
 
         // reset the lcd, think there is a hardware bug on leg use which causes it to go funny now and again

@@ -1,3 +1,15 @@
+git:
+
+git status        # see what's changed
+git add .         # stage changes
+git commit -m "Explain what you changed"
+git push          # if using GitHub
+
+
+=================================================================================================
+
+
+
 pins used:
 
 LCD: 31,33,34,37,41
